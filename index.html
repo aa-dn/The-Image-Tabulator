@@ -86,6 +86,13 @@
   <section class="grid-scroll" id="grid-scroll">
     <div class="viewbar" id="viewbar">
       <div class="viewbar-group">
+        <label class="viewbar-field hidden" id="media-type-wrap">Show
+          <select id="media-type-select">
+            <option value="all">Photos &amp; videos</option>
+            <option value="image">Photos only</option>
+            <option value="video">Videos only</option>
+          </select>
+        </label>
         <label class="viewbar-field">Sort
           <select id="sort-select">
             <option value="name">Name</option>
@@ -191,6 +198,10 @@
     <div class="modal-header">
       <h2 id="metadata-title">Metadata check</h2>
       <div class="modal-actions">
+        <button class="btn btn-small hidden" id="btn-tag-ai"
+          title="Put every AI-flagged file in this batch into a group called &quot;AI signal&quot;">Tag as AI signal</button>
+        <button class="btn btn-small btn-primary hidden" id="btn-select-ai"
+          title="Select every file in this batch that has an AI signal, then close this panel so you can group them">Select AI-flagged</button>
         <button class="modal-close" id="metadata-close" aria-label="Close">✕</button>
       </div>
     </div>

@@ -32,6 +32,7 @@ const state = {
   anchorKey: null,
   activeFilter: 'all',    // 'all' | 'ungrouped' | group key
   search: '',
+  mediaType: 'all',       // 'all' | 'image' | 'video'
   lightboxPhoto: null,
   lightboxIndex: 0,       // position of lightboxPhoto in the visible list when it was shown
   page: 0,
@@ -283,6 +284,11 @@ async function loadFolder(handle, { preserveView = false } = {}) {
   const videoCount = photos.filter(p => p.isVideo).length;
   const imageCount = photos.length - videoCount;
   const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+  // The photos/videos filter only matters when the folder has both.
+  const mixed = videoCount > 0 && imageCount > 0;
+  if (!prev || !mixed) state.mediaType = 'all';
+  document.getElementById('media-type-wrap').classList.toggle('hidden', !mixed);
+  document.getElementById('media-type-select').value = state.mediaType;
   status.textContent = `${handle.name} (${plural(imageCount, 'photo')}${videoCount ? `, ${plural(videoCount, 'video')}` : ''})`;
   document.getElementById('btn-reopen').classList.add('hidden');
   document.getElementById('btn-rescan').classList.remove('hidden');
@@ -462,6 +468,7 @@ function getVisibleList() {
   let list = state.photos;
   if (state.activeFilter === 'ungrouped') list = list.filter(p => p.groups.size === 0);
   else if (state.activeFilter !== 'all') list = list.filter(p => p.groups.has(state.activeFilter));
+  if (state.mediaType !== 'all') list = list.filter(p => p.isVideo === (state.mediaType === 'video'));
   if (state.search) {
     const q = state.search.toLowerCase();
     list = list.filter(p => p.name.toLowerCase().includes(q));
@@ -736,6 +743,20 @@ function renderGrid() {
     if (!state.photoMap.get(cell.dataset.key)?.thumbUrl) obs.observe(cell);
   });
   updateSelectionUI();
+  updateMetadataButton();
+}
+
+// The metadata check covers every file in the grid, not just the selected ones, so
+// the button says how many files that is.
+function updateMetadataButton() {
+  const n = state.pageList.length;
+  const files = `${n.toLocaleString()} file${n === 1 ? '' : 's'}`;
+  const scope = batchingActive() ? 'this batch' : 'this view';
+  const btn = document.getElementById('btn-metadata');
+  btn.textContent = `Analyse metadata (${scope}: ${files})`;
+  btn.title = `Checks the metadata of all ${files} in ${scope} for signs of AI generation, ` +
+    'whether or not they are selected. Files never leave this computer.';
+  btn.disabled = n === 0;
 }
 
 // Lays a playing video over the enlarged thumbnail, zoomed from the same corner.
@@ -1069,6 +1090,8 @@ const NON_CONTENT_GROUPS = /^(SourceFile|ExifTool|System|File|Composite)\b/;
 
 let exiftoolModule = null;
 let metadataRunId = 0;
+let metadataList = [];   // the batch shown in the metadata panel
+const AI_GROUP_NAME = 'AI signal';
 
 function loadExifTool() {
   if (!exiftoolModule) {
@@ -1157,8 +1180,9 @@ const VERDICT_ORDER = ['ai', 'credentials', 'clear', 'none', 'error'];
 
 function openMetadata() {
   const list = [...state.pageList];
-  const batch = batchingActive() ? ` · batch ${state.page + 1}` : '';
-  setText('metadata-title', `Metadata check${batch} (${list.length.toLocaleString()} file${list.length === 1 ? '' : 's'})`);
+  metadataList = list;
+  const scope = batchingActive() ? `batch ${state.page + 1}` : 'this view';
+  setText('metadata-title', `Metadata check: all ${list.length.toLocaleString()} file${list.length === 1 ? '' : 's'} in ${scope}`);
   document.getElementById('metadata-modal').classList.add('open');
   runMetadataAnalysis(list);
 }
@@ -1166,6 +1190,31 @@ function openMetadata() {
 function closeMetadata() {
   metadataRunId++; // stops an analysis in progress
   document.getElementById('metadata-modal').classList.remove('open');
+}
+
+// Adds every AI-flagged file in the analysed batch to an "AI signal" group
+// (created if needed), so they can be filtered, counted and exported later.
+function tagAiFlagged() {
+  const flagged = metadataList.filter(p => p.meta?.verdict === 'ai');
+  if (!flagged.length) return;
+  const key = createGroup(AI_GROUP_NAME);
+  flagged.forEach(p => p.groups.add(key));
+  groupsChanged();
+  renderMetadataResults(metadataList);
+}
+
+// Replaces the selection with every AI-flagged file in the analysed batch and
+// returns to the grid, ready for "Add to group" (or a 1–9 hotkey).
+function selectAiFlagged() {
+  const keys = metadataList.filter(p => p.meta?.verdict === 'ai').map(p => p.key);
+  if (!keys.length) return;
+  state.selection.clear();
+  keys.forEach(k => state.selection.add(k));
+  state.anchorKey = null;
+  closeMetadata();
+  updateSelectionUI();
+  const first = document.querySelector(`#grid .thumb[data-key="${CSS.escape(keys[0])}"]`);
+  if (first) first.scrollIntoView({ block: 'nearest' });
 }
 
 async function runMetadataAnalysis(list) {
@@ -1206,6 +1255,18 @@ async function runMetadataAnalysis(list) {
 function renderMetadataResults(list) {
   const counts = Object.fromEntries(VERDICT_ORDER.map(v => [v, 0]));
   list.forEach(p => { if (p.meta) counts[p.meta.verdict]++; });
+  const selectAi = document.getElementById('btn-select-ai');
+  selectAi.classList.toggle('hidden', !counts.ai);
+  selectAi.textContent = `Select ${counts.ai.toLocaleString()} AI-flagged`;
+  // Tagging is offered once the whole batch has been checked.
+  const tagAi = document.getElementById('btn-tag-ai');
+  const flagged = list.filter(p => p.meta?.verdict === 'ai');
+  const allTagged = flagged.every(p => p.groups.has(AI_GROUP_NAME.toLowerCase()));
+  tagAi.classList.toggle('hidden', !flagged.length || !list.every(p => p.meta));
+  tagAi.disabled = allTagged;
+  tagAi.textContent = allTagged
+    ? `✓ Tagged as "${AI_GROUP_NAME}"`
+    : `Tag ${flagged.length.toLocaleString()} as "${AI_GROUP_NAME}"`;
   document.getElementById('metadata-tiles').innerHTML = VERDICT_ORDER
     .filter(v => v !== 'error' || counts.error)
     .map(v => `<div class="stat-tile meta-tile" data-verdict="${v}">
@@ -1449,6 +1510,13 @@ function wireViewbar() {
     renderViewbar(getVisibleList(), pageCount(getVisibleList()));
   });
 
+  const mediaSel = document.getElementById('media-type-select');
+  mediaSel.addEventListener('change', () => {
+    state.mediaType = mediaSel.value;
+    mediaSel.blur();
+    goToPage(0);
+  });
+
   sortSel.addEventListener('change', () => {
     state.sort = sortSel.value;
     applySort();
@@ -1619,6 +1687,8 @@ function init() {
 
   document.getElementById('btn-metadata').addEventListener('click', openMetadata);
   document.getElementById('metadata-close').addEventListener('click', closeMetadata);
+  document.getElementById('btn-select-ai').addEventListener('click', selectAiFlagged);
+  document.getElementById('btn-tag-ai').addEventListener('click', tagAiFlagged);
   document.getElementById('metadata-backdrop').addEventListener('click', closeMetadata);
   document.getElementById('metadata-results').addEventListener('click', (e) => {
     const btn = e.target.closest('.meta-name');
