@@ -475,15 +475,16 @@ kbd.hotkey {
   padding: 0 20px;
 }
 .intro-logo { width: 180px; height: 180px; display: block; margin: 0 auto 4px; }
-/* The bird flips to face the other way and back, three times, like it's
-   looking around. Added by app.js on the first visit and on mouse-over. */
+/* The bird flips to face the other way and back, like it's looking around:
+   three times on the first visit, once per mouse-over (classes set by app.js). */
 .intro-logo.flip-intro { animation: intro-flip .8s ease-in-out .3s 3; }
+.intro-logo.flip-once  { animation: intro-flip .8s ease-in-out 1; }
 @keyframes intro-flip {
   0%, 100% { transform: scaleX(1); }
   50%      { transform: scaleX(-1); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .intro-logo.flip-intro { animation: none; }
+  .intro-logo.flip-intro, .intro-logo.flip-once { animation: none; }
 }
 .intro-title { display: inline-flex; margin: 8px 0 22px; }
 

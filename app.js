@@ -1053,12 +1053,25 @@ function renderAll() {
 
 // ---------------- Intro bird flip ----------------
 
-// Flips on the very first visit, and again whenever the mouse moves onto it.
-// A hover mid-flip is ignored, so the animation always finishes cleanly.
+// Flips three times on the very first visit, and once per mouse-over after
+// that. Hovers that land mid-flip are queued, so hovering twice gives two flips.
 function wireIntroLogoFlip() {
   const logo = document.querySelector('#intro-message .intro-logo');
-  logo.addEventListener('animationend', () => logo.classList.remove('flip-intro'));
-  logo.addEventListener('mouseenter', () => logo.classList.add('flip-intro'));
+  let queuedFlips = 0;
+  const playNextFlip = () => {
+    if (!queuedFlips || logo.classList.contains('flip-intro') || logo.classList.contains('flip-once')) return;
+    queuedFlips--;
+    logo.classList.add('flip-once');
+  };
+  logo.addEventListener('animationend', () => {
+    logo.classList.remove('flip-intro', 'flip-once');
+    void logo.offsetWidth; // force a reflow so a queued flip restarts the animation
+    playNextFlip();
+  });
+  logo.addEventListener('mouseenter', () => {
+    queuedFlips++;
+    playNextFlip();
+  });
 
   try {
     if (localStorage.getItem('photo-sorter:intro-spun')) return;
