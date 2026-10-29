@@ -1,0 +1,19 @@
+# Render Blueprint: deploys The Image Tabulator as a static site (no build step).
+# Photos are never uploaded: the app reads them directly from the viewer's own
+# computer in the browser. Render only serves these app files.
+services:
+  - type: web
+    name: image-tabulator
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer

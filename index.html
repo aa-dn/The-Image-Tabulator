@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Image Tabulator</title>
+<link rel="icon" href="favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" href="icon.png" />
+<link rel="apple-touch-icon" href="icon.png" />
+<meta name="theme-color" content="#fdfdf9" />
+<!-- Title font. Offline, the title falls back to Bahnschrift (built into Windows). -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,800&display=swap" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="unsupported" class="unsupported hidden">
+  <div class="unsupported-box">
+    <img src="icon.png" alt="" class="intro-logo" />
+    <h1>Browser not supported</h1>
+    <p>The Image Tabulator needs the File System Access API to open a folder of photos directly from your computer. Please open this file in <strong>Microsoft Edge</strong> or <strong>Google Chrome</strong> instead.</p>
+  </div>
+</div>
+
+<header class="toolbar">
+  <h1 class="block-title" id="toolbar-title" aria-label="The Image Tabulator"><span>The</span><span>Image</span><span>Tabulator</span></h1>
+  <div class="toolbar-main">
+  <div class="toolbar-group">
+    <button id="btn-open" class="btn btn-primary">Open Folder…</button>
+    <button id="btn-reopen" class="btn hidden">Reopen last folder</button>
+    <button id="btn-rescan" class="btn hidden" title="Re-scan the current folder for new or removed files">Rescan</button>
+    <span id="folder-name" class="folder-name"></span>
+  </div>
+  <div class="toolbar-group toolbar-actions">
+    <span id="selection-count" class="selection-count"></span>
+    <div class="dropdown hidden" id="add-group-dropdown">
+      <button id="btn-add-group" class="btn" disabled>Add to group ▾</button>
+      <div class="dropdown-menu" id="add-group-menu">
+        <div class="dropdown-list" id="existing-groups-list"></div>
+        <form id="new-group-form" class="new-group-form">
+          <input id="new-group-input" type="text" placeholder="New group name…" maxlength="60" autocomplete="off" />
+          <button type="submit" class="btn btn-small">Create</button>
+        </form>
+      </div>
+    </div>
+    <button id="btn-remove-group" class="btn hidden" disabled title="Remove selected photos from the group currently being viewed">Remove from group</button>
+    <button id="btn-clear-selection" class="btn hidden" disabled>Clear selection</button>
+    <button id="btn-stats" class="btn hidden">Statistics</button>
+    <button id="btn-theme" class="btn btn-icon" title="Toggle light/dark theme">🌓</button>
+  </div>
+  </div>
+  <img src="logo.png" alt="" class="brand-logo" />
+</header>
+
+<main class="layout hidden" id="layout">
+  <aside class="sidebar">
+    <h2 class="sidebar-title">Groups</h2>
+    <div id="group-list" class="group-list"></div>
+    <div class="sidebar-help">
+      <h3 class="sidebar-subtitle">How to</h3>
+      <ul class="help-list">
+        <li>Click photos to select or deselect them.</li>
+        <li>Shift-click to select a range.</li>
+        <li>Use <strong>Add to group</strong> to bundle selected photos together.</li>
+        <li>Hold the right mouse button on a photo to enlarge it.</li>
+        <li>Double-click a group name to rename it.</li>
+      </ul>
+
+      <h3 class="sidebar-subtitle">Shortcuts</h3>
+      <ul class="help-list help-keys">
+        <li><span class="keys"><kbd class="hotkey">1</kbd>–<kbd class="hotkey">9</kbd></span> Add selection to a group</li>
+        <li><span class="keys"><kbd class="hotkey">Ctrl</kbd>+<kbd class="hotkey">A</kbd></span> Select this batch</li>
+        <li><span class="keys"><kbd class="hotkey">Esc</kbd></span> Clear selection</li>
+      </ul>
+    </div>
+  </aside>
+  <div class="sidebar-resizer" id="sidebar-resizer" role="separator" aria-orientation="vertical"
+       aria-label="Resize sidebar" tabindex="0" title="Drag to resize · double-click to reset"></div>
+
+  <section class="grid-scroll" id="grid-scroll">
+    <div class="viewbar" id="viewbar">
+      <div class="viewbar-group">
+        <label class="viewbar-field">Sort
+          <select id="sort-select">
+            <option value="name">Name</option>
+            <option value="date-asc">Date modified (oldest first)</option>
+            <option value="date-desc">Date modified (newest first)</option>
+            <option value="size-desc">File size (largest first)</option>
+          </select>
+        </label>
+        <label class="viewbar-field">Size
+          <input type="range" id="thumb-size" min="90" max="260" step="10" />
+        </label>
+        <label class="viewbar-field hidden" id="page-size-wrap">Per batch
+          <select id="page-size-select">
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+            <option value="0">All</option>
+          </select>
+        </label>
+        <!-- Filename search is rarely needed, so it stays collapsed behind an icon. -->
+        <div class="search-wrap">
+          <button class="btn btn-small search-toggle" id="btn-search-toggle" title="Search filenames" aria-label="Search filenames">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 10l4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
+          <input id="search" type="search" placeholder="Search filenames…" class="search-input hidden" />
+        </div>
+      </div>
+      <div class="pager hidden" id="pager">
+        <button class="btn btn-small" id="btn-prev-page" title="Previous batch ( [ )">‹ Prev</button>
+        <select id="page-select" class="page-select"></select>
+        <button class="btn btn-small" id="btn-next-page" title="Next batch ( ] )">Next ›</button>
+      </div>
+      <div class="progress">
+        <div class="progress-head">
+          <div class="progress-text" id="progress-text"></div>
+          <div class="scope-toggle hidden" id="scope-toggle" role="group" aria-label="Count grouped photos in">
+            <button type="button" data-scope="batch" aria-pressed="true">This batch</button>
+            <button type="button" data-scope="all" aria-pressed="false">All photos</button>
+          </div>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <p id="empty-message" class="empty-message hidden">No photos match the current view.</p>
+  </section>
+</main>
+
+<div id="intro-message" class="intro-message">
+  <img src="icon.png" alt="" class="intro-logo" />
+  <h2 class="block-title intro-title" id="intro-title" aria-label="The Image Tabulator"><span>The</span><span>Image</span><span>Tabulator</span></h2>
+  <p>
+    Open a folder to get started. You can look through a large batch of photos at once,
+    hold the right mouse button on any thumbnail to see it larger, select several and bundle them into a
+    named group, and review stats about how your groups break down.
+  </p>
+</div>
+
+<div id="lightbox" class="lightbox">
+  <button class="lightbox-close" id="lightbox-close" aria-label="Close">✕</button>
+  <button class="lightbox-nav lightbox-prev" id="lightbox-prev" aria-label="Previous">‹</button>
+  <img id="lightbox-img" class="lightbox-img" alt="" />
+  <button class="lightbox-nav lightbox-next" id="lightbox-next" aria-label="Next">›</button>
+  <div class="lightbox-caption" id="lightbox-caption"></div>
+  <div class="lightbox-groups" id="lightbox-groups"></div>
+</div>
+
+<div id="stats-modal" class="modal">
+  <div class="modal-backdrop" id="stats-backdrop"></div>
+  <div class="modal-panel">
+    <div class="modal-header">
+      <h2>Group statistics</h2>
+      <div class="modal-actions">
+        <button class="btn btn-small" id="btn-export" title="Download a CSV listing every photo and its groups">Export CSV</button>
+        <button class="modal-close" id="stats-close" aria-label="Close">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="stat-tiles">
+        <div class="stat-tile"><div class="stat-label">Total photos</div><div class="stat-value" id="stat-total">0</div></div>
+        <div class="stat-tile"><div class="stat-label">Groups</div><div class="stat-value" id="stat-groups">0</div></div>
+        <div class="stat-tile"><div class="stat-label">Grouped</div><div class="stat-value" id="stat-grouped">0</div></div>
+        <div class="stat-tile"><div class="stat-label">Ungrouped</div><div class="stat-value" id="stat-ungrouped">0</div></div>
+        <div class="stat-tile"><div class="stat-label">Avg. group size</div><div class="stat-value" id="stat-avg">0</div></div>
+        <div class="stat-tile stat-tile-wide"><div class="stat-label">Largest group</div><div class="stat-value" id="stat-largest">—</div></div>
+      </div>
+
+      <h3 class="section-title">Photos per group</h3>
+      <div id="stats-chart" class="bar-chart"></div>
+
+      <table class="stats-table">
+        <thead><tr><th>Group</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
+        <tbody id="stats-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
