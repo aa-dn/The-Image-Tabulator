@@ -1082,7 +1082,10 @@ const AI_SOURCE_TYPE = /trainedAlgorithmicMedia|trained algorithmic media|genera
 // Names of AI image/video generators, as they appear in Software, Creator, C2PA claim fields, etc.
 // Names that are also everyday words (Imagen = Spanish "image", Sora = Japanese "sky",
 // Gemini = star sign) only count with a version number or company name attached.
-const AI_TOOL = /\b(midjourney|dall[\s·-]?e|openai|chatgpt|gpt-image|gpt-4o|firefly|stable[\s-]?diffusion|stability ai|sdxl|comfyui|automatic1111|invokeai|novelai|leonardo\.?ai|ideogram|google imagen|imagen ?\d|made with google ai|google gemini|gemini ?\d|bing image creator|microsoft designer|black forest labs|flux\.?1|runwayml|runway gen|openai sora|sora ?\d|pika labs|kling|veo ?\d|grok|krea|playground ?ai|nightcafe|craiyon|dreamstudio|seedream|hailuo|dreamina|recraft|magnific|dream machine)\b/i;
+const AI_TOOL = /\b(midjourney|dall[\s·-]?e|openai|chatgpt|gpt-image|gpt-4o|firefly|stable[\s-]?diffusion|stability ai|sdxl|comfyui|automatic1111|invokeai|novelai|leonardo\.?ai|ideogram|google imagen|imagen ?\d|made with google ai|google gemini|gemini ?\d|bing image creator|microsoft designer|black forest labs|flux\.?1|runwayml|runway gen|openai sora|sora ?\d|pika labs|kling|veo ?\d|grok|xai|spacexai|krea|playground ?ai|nightcafe|craiyon|dreamstudio|seedream|hailuo|dreamina|recraft|magnific|dream machine)\b/i;
+// Grok (xAI) writes "Signature: <long base64>" into both EXIF ImageDescription and
+// UserComment, separately from its C2PA manifest, so it survives if C2PA is stripped.
+const GROK_SIGNATURE = /^Signature: [A-Za-z0-9+/=]{200,}/;
 // Tag names that only image generators write (prompts, sampler settings, node graphs).
 const AI_PARAM_TAG = /^(parameters|prompt|negative_?prompt|workflow|sd-metadata|invokeai_metadata|generation_data|Dream|AIGC.*)$/i;
 // Groups describing the file on disk or ExifTool itself, not the file's own metadata.
@@ -1143,7 +1146,11 @@ function analyseTags(tags) {
     } else if (/Steps: \d+, Sampler:/.test(value)) {
       add(true, `Contains AI generation settings (prompt and sampler in ${name})`);
     }
-    const tool = value.match(AI_TOOL);
+    if (/ImageDescription|UserComment/i.test(name) && GROK_SIGNATURE.test(value)) {
+      add(true, 'Contains the hidden "Signature:" code that Grok writes into its images');
+    }
+    // Skip long unbroken runs (base64, hashes) so random letters can't spell a tool name.
+    const tool = value.replace(/\S{40,}/g, ' ').match(AI_TOOL);
     if (tool) add(true, `Mentions AI tool "${tool[0]}" (${name}: ${short})`);
   }
 
