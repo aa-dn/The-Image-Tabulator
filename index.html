@@ -11,6 +11,12 @@
 <!-- Title font. Offline, the title falls back to Bahnschrift (built into Windows). -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,800&display=swap" />
 <link rel="stylesheet" href="style.css" />
+<!-- ExifTool (WebAssembly build) is loaded on demand by app.js for metadata analysis.
+     It runs entirely in the browser: files are read locally and never uploaded.
+     Its engine imports this package by name, so map that name to the CDN copy. -->
+<script type="importmap">
+{ "imports": { "@6over3/zeroperl-ts": "https://cdn.jsdelivr.net/npm/@6over3/zeroperl-ts@1.0.10/dist/esm/index.js" } }
+</script>
 </head>
 <body>
 
@@ -46,6 +52,7 @@
     <button id="btn-remove-group" class="btn hidden" disabled title="Remove selected photos from the group currently being viewed">Remove from group</button>
     <button id="btn-clear-selection" class="btn hidden" disabled>Clear selection</button>
     <button id="btn-stats" class="btn hidden">Statistics</button>
+    <button id="btn-metadata" class="btn hidden" title="Check the metadata of the photos and videos in this batch for signs of AI generation">Analyse metadata</button>
   </div>
   </div>
   <img src="logo.png" alt="" class="brand-logo" />
@@ -131,8 +138,8 @@
   <img src="icon.png" alt="" class="intro-logo" />
   <h2 class="block-title intro-title" id="intro-title" aria-label="The Image Tabulator"><span>The</span><span>Image</span><span>Tabulator</span></h2>
   <p>
-    Open a folder to get started. You can look through a large batch of photos at once,
-    hold the right mouse button on any thumbnail to see it larger, select several and bundle them into a
+    Open a folder to get started. You can look through a large batch of photos and videos at once,
+    hold the right mouse button on any thumbnail to see it larger (videos play), select several and bundle them into a
     named group, and review stats about how your groups break down.
   </p>
 </div>
@@ -141,6 +148,7 @@
   <button class="lightbox-close" id="lightbox-close" aria-label="Close">✕</button>
   <button class="lightbox-nav lightbox-prev" id="lightbox-prev" aria-label="Previous">‹</button>
   <img id="lightbox-img" class="lightbox-img" alt="" />
+  <video id="lightbox-video" class="lightbox-img hidden" controls playsinline></video>
   <button class="lightbox-nav lightbox-next" id="lightbox-next" aria-label="Next">›</button>
   <div class="lightbox-caption" id="lightbox-caption"></div>
   <div class="lightbox-groups" id="lightbox-groups"></div>
@@ -173,6 +181,31 @@
         <thead><tr><th>Group</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
         <tbody id="stats-table-body"></tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<div id="metadata-modal" class="modal">
+  <div class="modal-backdrop" id="metadata-backdrop"></div>
+  <div class="modal-panel modal-panel-wide">
+    <div class="modal-header">
+      <h2 id="metadata-title">Metadata check</h2>
+      <div class="modal-actions">
+        <button class="modal-close" id="metadata-close" aria-label="Close">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <p class="meta-note">
+        Files are read on this computer only and are never uploaded. This looks for AI labels written into
+        a file's metadata. It <strong>can't</strong> see invisible pixel watermarks (such as Google's SynthID),
+        and most social media sites strip metadata, so <strong>"No AI signal" does not mean a file is genuine.</strong>
+      </p>
+      <div id="metadata-progress" class="meta-progress">
+        <div class="meta-status" id="metadata-status"></div>
+        <div class="progress-track"><div class="progress-fill" id="metadata-progress-fill"></div></div>
+      </div>
+      <div class="stat-tiles meta-tiles" id="metadata-tiles"></div>
+      <div id="metadata-results" class="meta-results"></div>
     </div>
   </div>
 </div>

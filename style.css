@@ -413,7 +413,33 @@ kbd.hotkey {
   transform: scale(2.3); /* keep in sync with PEEK_SCALE in app.js */
   box-shadow: 0 16px 40px rgba(0,0,0,.4);
 }
-.thumb.peek .thumb-overlay, .thumb.peek .thumb-chips { opacity: 0; }
+.thumb.peek .thumb-overlay, .thumb.peek .thumb-chips, .thumb.peek .thumb-video-badge { opacity: 0; }
+/* A video plays over the enlarged thumbnail while the right button is held. */
+.peek-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #000;
+  transform: scale(2.3); /* keep in sync with PEEK_SCALE in app.js */
+  box-shadow: 0 16px 40px rgba(0,0,0,.4);
+  pointer-events: none;
+}
+/* Marks a video in the grid: play symbol plus its length once known. */
+.thumb-video-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(10,16,26,.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+}
 /* When the filename strip is showing, lift the group chips above it. */
 .thumb:hover .thumb-chips, .thumb.selected .thumb-chips { bottom: 28px; }
 .thumb.selected .thumb-inner img { outline: 4px solid var(--highlight); outline-offset: -4px; }
@@ -578,6 +604,49 @@ kbd.hotkey {
 .stats-table th, .stats-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--gridline); }
 .stats-table th.num, .stats-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .stats-table .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; }
+
+/* ---------- Metadata check ---------- */
+.modal-panel-wide { width: min(900px, 94vw); }
+.meta-note {
+  margin: 0 0 14px; padding: 10px 12px; border-radius: 8px;
+  background: var(--surface-2); color: var(--text-secondary); font-size: 12.5px; line-height: 1.5;
+}
+.meta-progress { margin-bottom: 14px; }
+.meta-status { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta-tiles { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin-bottom: 16px; }
+.meta-tile { border-left: 4px solid var(--baseline); }
+.meta-results { display: flex; flex-direction: column; gap: 8px; }
+.meta-row { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.meta-row.pending { opacity: .6; }
+.meta-row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.meta-name {
+  background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--accent);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.meta-name:hover { text-decoration: underline; }
+.meta-pill {
+  flex-shrink: 0; font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-secondary);
+}
+/* Verdict colours: berry = AI signal, cobalt = signed credentials, olive = nothing found. */
+.meta-pill[data-verdict="ai"]          { background: var(--series-8); color: var(--series-ink-8); }
+.meta-pill[data-verdict="credentials"] { background: var(--series-1); color: var(--series-ink-1); }
+.meta-pill[data-verdict="clear"]       { background: var(--series-3); color: var(--series-ink-3); }
+.meta-pill[data-verdict="error"]       { background: var(--series-5); color: var(--series-ink-5); }
+.meta-tile[data-verdict="ai"]          { border-left-color: var(--series-8); }
+.meta-tile[data-verdict="credentials"] { border-left-color: var(--series-1); }
+.meta-tile[data-verdict="clear"]       { border-left-color: var(--series-3); }
+.meta-tile[data-verdict="error"]       { border-left-color: var(--series-5); }
+.meta-findings { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+.meta-findings li { overflow-wrap: anywhere; }
+.meta-findings li.strong { color: var(--series-8); font-weight: 600; }
+.meta-all { margin-top: 8px; font-size: 12px; }
+.meta-all summary { cursor: pointer; color: var(--text-muted); }
+.meta-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.meta-table th, .meta-table td { text-align: left; vertical-align: top; padding: 3px 6px; border-bottom: 1px solid var(--gridline); }
+.meta-table th { font-weight: 500; color: var(--text-muted); white-space: nowrap; width: 1%; }
+.meta-table td { overflow-wrap: anywhere; }
 
 @media (max-width: 700px) {
   .stat-tiles { grid-template-columns: repeat(2, 1fr); }

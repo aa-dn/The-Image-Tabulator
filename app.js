@@ -1,6 +1,9 @@
 'use strict';
 
 const IMAGE_EXT = new Set(['jpg','jpeg','png','gif','webp','bmp','avif']);
+// Formats Chrome/Edge can usually play. .mov/.mkv only play if the codec inside is supported (e.g. H.264).
+const VIDEO_EXT = new Set(['mp4','m4v','webm','mov','ogv','mkv']);
+const VIDEO_LOAD_TIMEOUT = 15000; // ms to wait for a video frame before giving up on its thumbnail
 const THUMB_SIZE = 512;        // short-side px of generated thumbnails (big enough for the enlarged view)
 const THUMB_CONCURRENCY = 4;   // how many images to decode at once
 const PEEK_SCALE = 2.3;        // keep in sync with .thumb.peek transform in style.css
@@ -225,13 +228,13 @@ async function loadFolder(handle, { preserveView = false } = {}) {
   for await (const [name, h] of handle.entries()) {
     if (h.kind !== 'file') continue;
     const ext = name.split('.').pop().toLowerCase();
-    if (IMAGE_EXT.has(ext)) entries.push([name, h]);
+    if (IMAGE_EXT.has(ext) || VIDEO_EXT.has(ext)) entries.push([name, h, VIDEO_EXT.has(ext)]);
   }
 
   // Reading file metadata one at a time is slow for thousands of files, so do it in parallel chunks.
   const photos = [];
   for (let i = 0; i < entries.length; i += SCAN_CHUNK) {
-    const chunk = await Promise.all(entries.slice(i, i + SCAN_CHUNK).map(async ([name, h]) => {
+    const chunk = await Promise.all(entries.slice(i, i + SCAN_CHUNK).map(async ([name, h, isVideo]) => {
       let file;
       try {
         file = await h.getFile();
@@ -243,6 +246,8 @@ async function loadFolder(handle, { preserveView = false } = {}) {
         size: file.size,
         lastModified: file.lastModified,
         groups: new Set(),
+        isVideo,
+        duration: null,    // seconds, videos only (known once the thumbnail is made)
         objectUrl: null,   // full-size, used by the lightbox
         thumbUrl: null,    // downscaled, used by the grid
         thumbPending: false,
@@ -275,7 +280,10 @@ async function loadFolder(handle, { preserveView = false } = {}) {
     prev.selection.forEach(k => { if (state.photoMap.has(k)) state.selection.add(k); });
   }
 
-  status.textContent = `${handle.name} (${photos.length.toLocaleString()} photo${photos.length === 1 ? '' : 's'})`;
+  const videoCount = photos.filter(p => p.isVideo).length;
+  const imageCount = photos.length - videoCount;
+  const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+  status.textContent = `${handle.name} (${plural(imageCount, 'photo')}${videoCount ? `, ${plural(videoCount, 'video')}` : ''})`;
   document.getElementById('btn-reopen').classList.add('hidden');
   document.getElementById('btn-rescan').classList.remove('hidden');
   document.getElementById('search').value = state.search;
@@ -284,6 +292,7 @@ async function loadFolder(handle, { preserveView = false } = {}) {
   document.getElementById('btn-remove-group').classList.remove('hidden');
   document.getElementById('btn-clear-selection').classList.remove('hidden');
   document.getElementById('btn-stats').classList.remove('hidden');
+  document.getElementById('btn-metadata').classList.remove('hidden');
   document.getElementById('intro-message').classList.add('hidden');
   document.getElementById('layout').classList.remove('hidden');
 
@@ -319,8 +328,12 @@ function pumpThumbQueue() {
       .then(url => {
         photo.thumbUrl = url;
         // The grid may have been re-rendered since the request, so look the cell up fresh.
-        const img = document.querySelector(`#grid .thumb[data-key="${CSS.escape(photo.key)}"] img`);
-        if (img) img.src = url;
+        const cell = document.querySelector(`#grid .thumb[data-key="${CSS.escape(photo.key)}"]`);
+        if (cell) {
+          cell.querySelector('img').src = url;
+          const badge = cell.querySelector('.thumb-video-badge');
+          if (badge) badge.textContent = videoBadgeText(photo);
+        }
       })
       .catch(() => {})
       .finally(() => {
@@ -332,6 +345,7 @@ function pumpThumbQueue() {
 }
 
 async function makeThumb(photo) {
+  if (photo.isVideo) return makeVideoThumb(photo);
   const file = await photo.handle.getFile();
   let bmp;
   try {
@@ -356,6 +370,76 @@ async function makeThumb(photo) {
   const blob = await new Promise(resolve => canvas.toBlob(resolve, type, 0.85));
   if (!blob) throw new Error('thumbnail encode failed');
   return URL.createObjectURL(blob);
+}
+
+// Resolves when `el` fires `event`; rejects on a media error or after the timeout,
+// so an unplayable video can't hold up the thumbnail queue.
+function waitForMedia(el, event) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => done(reject, new Error(`timed out waiting for ${event}`)), VIDEO_LOAD_TIMEOUT);
+    const ok = () => done(resolve);
+    const fail = () => done(reject, new Error('media error'));
+    function done(fn, arg) {
+      clearTimeout(timer);
+      el.removeEventListener(event, ok);
+      el.removeEventListener('error', fail);
+      fn(arg);
+    }
+    el.addEventListener(event, ok);
+    el.addEventListener('error', fail);
+  });
+}
+
+// A video's thumbnail is a frame from a little way in (the very first frame is
+// often black), downscaled onto a canvas just like a photo.
+async function makeVideoThumb(photo) {
+  const src = await ensureObjectUrl(photo);
+  const video = document.createElement('video');
+  video.muted = true;
+  video.preload = 'auto';
+  try {
+    video.src = src;
+    await waitForMedia(video, 'loadeddata');
+    photo.width = video.videoWidth;
+    photo.height = video.videoHeight;
+    photo.duration = Number.isFinite(video.duration) ? video.duration : null;
+    if (photo.duration) {
+      video.currentTime = Math.min(1, photo.duration * 0.1);
+      await waitForMedia(video, 'seeked');
+    }
+    const scale = Math.min(1, THUMB_SIZE / Math.min(video.videoWidth, video.videoHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob) throw new Error('thumbnail encode failed');
+    return URL.createObjectURL(blob);
+  } finally {
+    // Release the decoder straight away rather than waiting for garbage collection.
+    video.removeAttribute('src');
+    video.load();
+  }
+}
+
+function formatDuration(seconds) {
+  const s = Math.round(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+function videoBadgeText(photo) {
+  return photo.duration ? `▶ ${formatDuration(photo.duration)}` : '▶';
+}
+
+// Videos play from the original file, so make sure there's a URL for it.
+async function ensureObjectUrl(photo) {
+  if (!photo.objectUrl) photo.objectUrl = URL.createObjectURL(await photo.handle.getFile());
+  return photo.objectUrl;
 }
 
 // ---------------- Derived data ----------------
@@ -640,6 +724,7 @@ function renderGrid() {
           <div class="thumb-name">${escapeHtml(photo.name)}</div>
         </div>
         <div class="thumb-chips">${chips}</div>
+        ${photo.isVideo ? `<span class="thumb-video-badge">${videoBadgeText(photo)}</span>` : ''}
       </div>`;
 
     frag.appendChild(cell);
@@ -651,6 +736,29 @@ function renderGrid() {
     if (!state.photoMap.get(cell.dataset.key)?.thumbUrl) obs.observe(cell);
   });
   updateSelectionUI();
+}
+
+// Lays a playing video over the enlarged thumbnail, zoomed from the same corner.
+async function startPeekVideo(cell, photo) {
+  const src = await ensureObjectUrl(photo).catch(() => null);
+  if (!src || !cell.classList.contains('peek')) return; // button already released
+  const video = document.createElement('video');
+  video.className = 'peek-video';
+  video.muted = true;
+  video.loop = true;
+  video.playsInline = true;
+  video.poster = photo.thumbUrl || '';
+  video.style.transformOrigin = cell.querySelector('img').style.transformOrigin;
+  video.src = src;
+  cell.querySelector('.thumb-inner').appendChild(video);
+  video.play().catch(() => {}); // unplayable codec: the still thumbnail stays visible
+}
+
+function stopVideo(video) {
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  video.remove();
 }
 
 // Grid events are delegated from #grid so re-rendering a batch doesn't attach
@@ -678,6 +786,7 @@ function wireGridEvents() {
     if (photo) openLightbox(photo);
   });
   // Hold the right mouse button on a photo to enlarge it; release to shrink it back.
+  // A video plays (muted) in the enlarged view for as long as the button is held.
   grid.addEventListener('mousedown', (e) => {
     if (e.button !== 2) return;
     const cell = e.target.closest('.thumb');
@@ -685,11 +794,16 @@ function wireGridEvents() {
     e.preventDefault();
     setZoomOrigin(cell);
     cell.classList.add('peek');
+    const photo = state.photoMap.get(cell.dataset.key);
+    if (photo?.isVideo) startPeekVideo(cell, photo);
   });
   grid.addEventListener('contextmenu', (e) => {
     if (e.target.closest('.thumb')) e.preventDefault();
   });
-  const endPeek = () => document.querySelectorAll('#grid .thumb.peek').forEach(c => c.classList.remove('peek'));
+  const endPeek = () => document.querySelectorAll('#grid .thumb.peek').forEach(c => {
+    c.classList.remove('peek');
+    c.querySelectorAll('.peek-video').forEach(stopVideo);
+  });
   window.addEventListener('mouseup', (e) => { if (e.button === 2) endPeek(); });
   window.addEventListener('blur', endPeek);
 }
@@ -932,6 +1046,202 @@ function closeStats() {
   document.getElementById('stats-modal').classList.remove('open');
 }
 
+// ---------------- Metadata analysis (AI-generation signals) ----------------
+// Runs ExifTool compiled to WebAssembly inside the browser. Each file is handed
+// to ExifTool's in-memory filesystem and never leaves this computer; the only
+// network traffic is downloading the ExifTool library itself (once, then cached).
+// One batch is analysed at a time, and results are kept on each item so
+// reopening the panel is instant.
+
+const EXIFTOOL_URL = 'https://cdn.jsdelivr.net/npm/@uswriting/exiftool@1.0.9/dist/esm/index.js';
+const ZEROPERL_WASM_URL = 'https://cdn.jsdelivr.net/npm/@6over3/zeroperl-ts@1.0.10/dist/esm/zeroperl.wasm';
+
+// IPTC "digital source type" values that mean the content was made by generative AI.
+const AI_SOURCE_TYPE = /trainedAlgorithmicMedia|trained algorithmic media|generative AI|algorithmicMedia/i;
+// Names of AI image/video generators, as they appear in Software, Creator, C2PA claim fields, etc.
+// Names that are also everyday words (Imagen = Spanish "image", Sora = Japanese "sky",
+// Gemini = star sign) only count with a version number or company name attached.
+const AI_TOOL = /\b(midjourney|dall[\s·-]?e|openai|chatgpt|gpt-image|gpt-4o|firefly|stable[\s-]?diffusion|stability ai|sdxl|comfyui|automatic1111|invokeai|novelai|leonardo\.?ai|ideogram|google imagen|imagen ?\d|made with google ai|google gemini|gemini ?\d|bing image creator|microsoft designer|black forest labs|flux\.?1|runwayml|runway gen|openai sora|sora ?\d|pika labs|kling|veo ?\d|grok|krea|playground ?ai|nightcafe|craiyon|dreamstudio|seedream|hailuo|dreamina|recraft|magnific|dream machine)\b/i;
+// Tag names that only image generators write (prompts, sampler settings, node graphs).
+const AI_PARAM_TAG = /^(parameters|prompt|negative_?prompt|workflow|sd-metadata|invokeai_metadata|generation_data|Dream|AIGC.*)$/i;
+// Groups describing the file on disk or ExifTool itself, not the file's own metadata.
+const NON_CONTENT_GROUPS = /^(SourceFile|ExifTool|System|File|Composite)\b/;
+
+let exiftoolModule = null;
+let metadataRunId = 0;
+
+function loadExifTool() {
+  if (!exiftoolModule) {
+    exiftoolModule = import(EXIFTOOL_URL).catch(err => { exiftoolModule = null; throw err; });
+  }
+  return exiftoolModule;
+}
+
+async function readMetadata(photo) {
+  const { parseMetadata } = await loadExifTool();
+  const file = await photo.handle.getFile();
+  const out = await parseMetadata(file, {
+    args: ['-json', '-G1', '-a'],
+    transform: (text) => JSON.parse(text),
+    fetch: () => fetch(ZEROPERL_WASM_URL),
+  });
+  if (out && out.success === false) throw new Error(out.error || 'ExifTool could not read this file');
+  const data = out && 'data' in out ? out.data : out;
+  return (Array.isArray(data) ? data[0] : data) || {};
+}
+
+// Turns raw ExifTool tags into a verdict plus plain-English findings.
+function analyseTags(tags) {
+  const findings = [];   // { strong: bool, text }
+  const seen = new Set();
+  const add = (strong, text) => {
+    if (seen.has(text)) return;
+    seen.add(text);
+    findings.push({ strong, text });
+  };
+  let credentials = false;
+  let contentTags = 0;
+
+  for (const [key, raw] of Object.entries(tags)) {
+    if (NON_CONTENT_GROUPS.test(key)) continue;
+    contentTags++;
+    const [group, name = key] = key.includes(':') ? key.split(':') : ['', key];
+    const value = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    const short = value.length > 120 ? `${value.slice(0, 120)}…` : value;
+
+    if (/^JUMBF|C2PA/i.test(group) || /C2PA|ClaimGenerator/i.test(name)) credentials = true;
+    if (/ClaimGenerator/i.test(name)) add(false, `Content Credentials created by: ${short}`);
+
+    if (AI_SOURCE_TYPE.test(value)) {
+      add(true, `Labelled as AI-generated (${name}: ${short})`);
+    }
+    if (AI_PARAM_TAG.test(name)) {
+      add(true, `Contains AI generation settings ("${name}" field), typical of Stable Diffusion / ComfyUI`);
+    } else if (/Steps: \d+, Sampler:/.test(value)) {
+      add(true, `Contains AI generation settings (prompt and sampler in ${name})`);
+    }
+    const tool = value.match(AI_TOOL);
+    if (tool) add(true, `Mentions AI tool "${tool[0]}" (${name}: ${short})`);
+  }
+
+  const make = String(tags['IFD0:Make'] || tags['QuickTime:Make'] || '');
+  const model = String(tags['IFD0:Model'] || tags['QuickTime:Model'] || '');
+  if (make || model) {
+    const camera = make && model.toLowerCase().startsWith(make.toLowerCase()) ? model : `${make} ${model}`.trim();
+    add(false, `Camera: ${camera}`);
+  }
+  const software = tags['IFD0:Software'] || tags['XMP-xmp:CreatorTool'];
+  if (software) add(false, `Software: ${software}`);
+  if (credentials && !findings.some(f => f.text.startsWith('Content Credentials'))) {
+    add(false, 'Content Credentials (C2PA) present');
+  }
+
+  let verdict;
+  if (findings.some(f => f.strong)) verdict = 'ai';
+  else if (credentials) verdict = 'credentials';
+  else if (contentTags <= 3) verdict = 'none';
+  else verdict = 'clear';
+  // Strong signals first.
+  findings.sort((a, b) => b.strong - a.strong);
+  return { verdict, findings, tags };
+}
+
+const VERDICTS = {
+  ai:          { label: 'AI signal found',      tile: 'AI signal' },
+  credentials: { label: 'Content Credentials',  tile: 'Content Credentials' },
+  clear:       { label: 'No AI signal',         tile: 'No AI signal' },
+  none:        { label: 'Little or no metadata', tile: 'No metadata' },
+  error:       { label: 'Could not read',       tile: 'Unreadable' },
+};
+const VERDICT_ORDER = ['ai', 'credentials', 'clear', 'none', 'error'];
+
+function openMetadata() {
+  const list = [...state.pageList];
+  const batch = batchingActive() ? ` · batch ${state.page + 1}` : '';
+  setText('metadata-title', `Metadata check${batch} (${list.length.toLocaleString()} file${list.length === 1 ? '' : 's'})`);
+  document.getElementById('metadata-modal').classList.add('open');
+  runMetadataAnalysis(list);
+}
+
+function closeMetadata() {
+  metadataRunId++; // stops an analysis in progress
+  document.getElementById('metadata-modal').classList.remove('open');
+}
+
+async function runMetadataAnalysis(list) {
+  const runId = ++metadataRunId;
+  const status = document.getElementById('metadata-status');
+  const fill = document.getElementById('metadata-progress-fill');
+  const progress = document.getElementById('metadata-progress');
+  progress.classList.remove('hidden');
+  fill.style.width = '0%';
+  renderMetadataResults(list);
+
+  const todo = list.filter(p => !p.meta);
+  if (todo.length) {
+    status.textContent = 'Loading ExifTool… (about 25 MB the first time, then it’s cached)';
+    try {
+      await loadExifTool();
+    } catch (err) {
+      if (runId === metadataRunId) status.textContent = 'Couldn’t load ExifTool. Check your internet connection and try again.';
+      return;
+    }
+  }
+
+  for (let i = 0; i < todo.length; i++) {
+    if (runId !== metadataRunId) return;
+    const photo = todo[i];
+    status.textContent = `Analysing ${(i + 1).toLocaleString()} of ${todo.length.toLocaleString()}: ${photo.name}`;
+    try {
+      photo.meta = analyseTags(await readMetadata(photo));
+    } catch (err) {
+      photo.meta = { verdict: 'error', findings: [{ strong: false, text: String(err?.message || err) }], tags: {} };
+    }
+    fill.style.width = `${Math.round(((i + 1) / todo.length) * 100)}%`;
+    if (runId === metadataRunId) renderMetadataResults(list);
+  }
+  if (runId === metadataRunId) progress.classList.add('hidden');
+}
+
+function renderMetadataResults(list) {
+  const counts = Object.fromEntries(VERDICT_ORDER.map(v => [v, 0]));
+  list.forEach(p => { if (p.meta) counts[p.meta.verdict]++; });
+  document.getElementById('metadata-tiles').innerHTML = VERDICT_ORDER
+    .filter(v => v !== 'error' || counts.error)
+    .map(v => `<div class="stat-tile meta-tile" data-verdict="${v}">
+      <div class="stat-label">${VERDICTS[v].tile}</div><div class="stat-value">${counts[v].toLocaleString()}</div>
+    </div>`).join('');
+
+  // Files with AI signals first, then by verdict; unanalysed files last.
+  const rank = (p) => p.meta ? VERDICT_ORDER.indexOf(p.meta.verdict) : VERDICT_ORDER.length;
+  const sorted = [...list].sort((a, b) => rank(a) - rank(b));
+  document.getElementById('metadata-results').innerHTML = sorted.map(p => {
+    const m = p.meta;
+    if (!m) {
+      return `<div class="meta-row pending"><div class="meta-row-head">
+        <button class="meta-name" data-key="${escapeAttr(p.key)}">${escapeHtml(p.name)}</button>
+        <span class="meta-pill" data-verdict="pending">Waiting…</span></div></div>`;
+    }
+    const findings = m.findings.length
+      ? `<ul class="meta-findings">${m.findings.map(f => `<li class="${f.strong ? 'strong' : ''}">${escapeHtml(f.text)}</li>`).join('')}</ul>`
+      : '';
+    const rows = Object.entries(m.tags)
+      .filter(([k]) => k !== 'SourceFile')
+      .map(([k, v]) => {
+        const text = typeof v === 'string' ? v : JSON.stringify(v);
+        return `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(text.length > 400 ? `${text.slice(0, 400)}…` : text)}</td></tr>`;
+      }).join('');
+    const all = rows
+      ? `<details class="meta-all"><summary>All metadata (${Object.keys(m.tags).length - 1} tags)</summary>
+          <table class="meta-table">${rows}</table></details>`
+      : '';
+    return `<div class="meta-row"><div class="meta-row-head">
+        <button class="meta-name" data-key="${escapeAttr(p.key)}" title="Open in viewer">${escapeHtml(p.name)}</button>
+        <span class="meta-pill" data-verdict="${m.verdict}">${VERDICTS[m.verdict].label}</span>
+      </div>${findings}${all}</div>`;
+  }).join('');
+}
+
 // ---------------- Lightbox ----------------
 // The lightbox steps through the whole filtered view (across batches), and
 // 1–9 toggle the shown photo in/out of groups, so a large folder can be
@@ -951,6 +1261,16 @@ function showInLightbox(photo, index) {
 }
 
 function renderLightboxImage(photo, img) {
+  const video = document.getElementById('lightbox-video');
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+  img.classList.toggle('hidden', photo.isVideo);
+  video.classList.toggle('hidden', !photo.isVideo);
+  if (photo.isVideo) {
+    renderLightboxVideo(photo, video);
+    return;
+  }
   img.onload = () => {
     photo.width = img.naturalWidth;
     photo.height = img.naturalHeight;
@@ -968,12 +1288,34 @@ function renderLightboxImage(photo, img) {
   updateLightboxCaption(photo);
 }
 
-function updateLightboxCaption(photo) {
+// Videos play with sound and controls, starting as soon as they're shown.
+function renderLightboxVideo(photo, video) {
+  video.poster = photo.thumbUrl || '';
+  video.onloadedmetadata = () => {
+    photo.width = video.videoWidth;
+    photo.height = video.videoHeight;
+    if (Number.isFinite(video.duration)) photo.duration = video.duration;
+    if (state.lightboxPhoto === photo) updateLightboxCaption(photo);
+  };
+  video.onerror = () => {
+    if (state.lightboxPhoto === photo) updateLightboxCaption(photo, 'this video format can\'t be played in the browser');
+  };
+  ensureObjectUrl(photo).then(src => {
+    if (state.lightboxPhoto !== photo) return;
+    video.src = src;
+    video.play().catch(() => {});
+  }).catch(() => {});
+  updateLightboxCaption(photo);
+}
+
+function updateLightboxCaption(photo, note = '') {
   const list = getVisibleList();
   const idx = list.indexOf(photo);
   const pos = idx !== -1 ? `${(idx + 1).toLocaleString()} / ${list.length.toLocaleString()} · ` : '';
   const dims = photo.width ? ` · ${photo.width}×${photo.height}` : '';
-  document.getElementById('lightbox-caption').textContent = `${pos}${photo.name} · ${formatBytes(photo.size)}${dims}`;
+  const length = photo.duration ? ` · ${formatDuration(photo.duration)}` : '';
+  document.getElementById('lightbox-caption').textContent =
+    `${pos}${photo.name} · ${formatBytes(photo.size)}${dims}${length}${note ? ` · ${note}` : ''}`;
 }
 
 function renderLightboxGroups() {
@@ -991,12 +1333,17 @@ function renderLightboxGroups() {
       ${hk ? `<kbd>${hk}</kbd>` : ''}<span class="group-swatch" data-series="${g.series}"></span>${escapeHtml(g.name)}
     </button>`;
   }).join('');
-  box.innerHTML = `${buttons}<span class="lightbox-hint">1–9 toggle · ← → move · Esc close</span>`;
+  const space = photo.isVideo ? ' · Space play/pause' : '';
+  box.innerHTML = `${buttons}<span class="lightbox-hint">1–9 toggle · ← → move${space} · Esc close</span>`;
 }
 
 function closeLightbox() {
   const photo = state.lightboxPhoto;
   document.getElementById('lightbox').classList.remove('open');
+  const video = document.getElementById('lightbox-video');
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
   state.lightboxPhoto = null;
   if (!photo) return;
   // Return to the batch containing the last photo viewed.
@@ -1270,6 +1617,17 @@ function init() {
   document.getElementById('btn-export').addEventListener('click', exportCsv);
   document.getElementById('stats-backdrop').addEventListener('click', closeStats);
 
+  document.getElementById('btn-metadata').addEventListener('click', openMetadata);
+  document.getElementById('metadata-close').addEventListener('click', closeMetadata);
+  document.getElementById('metadata-backdrop').addEventListener('click', closeMetadata);
+  document.getElementById('metadata-results').addEventListener('click', (e) => {
+    const btn = e.target.closest('.meta-name');
+    const photo = btn && state.photoMap.get(btn.dataset.key);
+    if (!photo) return;
+    closeMetadata();
+    openLightbox(photo);
+  });
+
   document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
   document.getElementById('lightbox-prev').addEventListener('click', () => lightboxStep(-1));
   document.getElementById('lightbox-next').addEventListener('click', () => lightboxStep(1));
@@ -1285,14 +1643,24 @@ function init() {
     const typing = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
     const digit = /^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey ? Number(e.key) : 0;
     if (document.getElementById('lightbox').classList.contains('open')) {
+      // preventDefault stops a focused video's own controls also seeking/pausing.
+      const video = document.getElementById('lightbox-video');
       if (e.key === 'Escape') closeLightbox();
-      else if (e.key === 'ArrowLeft') lightboxStep(-1);
-      else if (e.key === 'ArrowRight') lightboxStep(1);
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); lightboxStep(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); lightboxStep(1); }
+      else if (e.key === ' ' && state.lightboxPhoto?.isVideo) {
+        e.preventDefault();
+        if (video.paused) video.play().catch(() => {}); else video.pause();
+      }
       else if (digit) togglePhotoGroup(state.lightboxPhoto, hotkeyGroups()[digit - 1]);
       return;
     }
     if (document.getElementById('stats-modal').classList.contains('open')) {
       if (e.key === 'Escape') closeStats();
+      return;
+    }
+    if (document.getElementById('metadata-modal').classList.contains('open')) {
+      if (e.key === 'Escape') closeMetadata();
       return;
     }
     if (typing) return;
