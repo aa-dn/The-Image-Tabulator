@@ -476,7 +476,7 @@ kbd.hotkey {
 }
 .intro-logo { width: 180px; height: 180px; display: block; margin: 0 auto 4px; }
 /* The bird flips to face the other way and back, three times, like it's
-   looking around. Added by app.js on the very first visit only. */
+   looking around. Added by app.js on the first visit and on mouse-over. */
 .intro-logo.flip-intro { animation: intro-flip .8s ease-in-out .3s 3; }
 @keyframes intro-flip {
   0%, 100% { transform: scaleX(1); }

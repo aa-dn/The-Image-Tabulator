@@ -1051,16 +1051,22 @@ function renderAll() {
   renderStatsIfOpen();
 }
 
-// ---------------- Intro bird flip (first visit only) ----------------
+// ---------------- Intro bird flip ----------------
 
-function flipIntroLogoOnFirstVisit() {
+// Flips on the very first visit, and again whenever the mouse moves onto it.
+// A hover mid-flip is ignored, so the animation always finishes cleanly.
+function wireIntroLogoFlip() {
+  const logo = document.querySelector('#intro-message .intro-logo');
+  logo.addEventListener('animationend', () => logo.classList.remove('flip-intro'));
+  logo.addEventListener('mouseenter', () => logo.classList.add('flip-intro'));
+
   try {
     if (localStorage.getItem('photo-sorter:intro-spun')) return;
     localStorage.setItem('photo-sorter:intro-spun', '1');
   } catch {
     return; // storage blocked: we can't tell if it's the first visit, so skip it
   }
-  document.querySelector('#intro-message .intro-logo').classList.add('flip-intro');
+  logo.classList.add('flip-intro');
 }
 
 // ---------------- Wire up ----------------
@@ -1199,7 +1205,7 @@ function init() {
     return;
   }
 
-  flipIntroLogoOnFirstVisit();
+  wireIntroLogoFlip();
 
   document.getElementById('btn-open').addEventListener('click', openFolder);
   document.getElementById('btn-rescan').addEventListener('click', () => {
