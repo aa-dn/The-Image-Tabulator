@@ -34,47 +34,29 @@
   --series-muted: #5c6355;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
-    color-scheme: dark;
-    --surface-1:      #172131;
-    --surface-2:      #1f2b3e;
-    --page:           #0f1520;
-    --text-primary:   #f1f0e0;
-    --text-secondary: #c9cdb8;
-    --text-muted:     #9ba291;
-    --gridline:       #26334a;
-    --baseline:       #34425a;
-    --border:         rgba(241,240,224,0.14);
-
-    --accent:         #94a6f2;
-    --accent-hover:   #aab8f5;
-    --on-accent:      #0f1520;
-    --highlight:      #ddd43c;
-    --on-highlight:   #0f1520;
-    --chrome:         #172131;
-    --series-muted:   #9ba291;
-  }
-}
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --surface-1:      #172131;
-  --surface-2:      #1f2b3e;
-  --page:           #0f1520;
-  --text-primary:   #f1f0e0;
-  --text-secondary: #c9cdb8;
-  --text-muted:     #9ba291;
-  --gridline:       #26334a;
-  --baseline:       #34425a;
-  --border:         rgba(241,240,224,0.14);
-
-  --accent:         #94a6f2;
-  --accent-hover:   #aab8f5;
-  --on-accent:      #0f1520;
-  --highlight:      #ddd43c;
-  --on-highlight:   #0f1520;
-  --chrome:         #172131;
-  --series-muted:   #9ba291;
+/* The opening screens use a soft sky blue: in keeping with the blue tit, but
+   light enough that the big bird's navy outline and cobalt cap aren't lost.
+   The normal palette applies once a folder is open and the intro is hidden.
+   Text keeps >= 4.5:1 contrast against the blue. */
+:root:has(#intro-message:not(.hidden)),
+:root:has(#unsupported:not(.hidden)) {
+  color-scheme: light;
+  --surface-1:      #d9e7f5;
+  --surface-2:      #c6daef;
+  --page:           #b3cde8;  /* sky blue */
+  --text-primary:   #16202e;
+  --text-secondary: #2c3848;
+  --text-muted:     #3b4656;
+  --gridline:       #a3bfdd;
+  --baseline:       #8aaacd;
+  --border:         rgba(28,43,60,0.20);
+  --accent:         #25357a;
+  --accent-hover:   #31449a;
+  --on-accent:      #ffffff;
+  --highlight:      #d3ca2b;
+  --on-highlight:   #1c2b3c;
+  --chrome:         #e6e9d8;
+  --series-muted:   #5c6355;
 }
 
 * { box-sizing: border-box; }
@@ -122,8 +104,8 @@ button { font-family: inherit; }
   top: 0;
   z-index: 200;
 }
-/* The toolbar keeps the light palette in both themes, so the bird's dark
-   outline is always clearly visible against it. */
+/* The toolbar keeps the light palette (even on the blue intro screen), so the
+   bird's dark outline is always clearly visible against it. */
 .toolbar {
   color-scheme: light;
   --surface-1:      #fdfdf9;
@@ -493,6 +475,12 @@ kbd.hotkey {
   padding: 0 20px;
 }
 .intro-logo { width: 180px; height: 180px; display: block; margin: 0 auto 4px; }
+/* One full turn of the bird, added by app.js on the very first visit only. */
+.intro-logo.spin-once { animation: intro-spin 1.2s ease-in-out .3s 1; }
+@keyframes intro-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .intro-logo.spin-once { animation: none; }
+}
 .intro-title { display: inline-flex; margin: 8px 0 22px; }
 
 /* ---------- Unsupported ---------- */

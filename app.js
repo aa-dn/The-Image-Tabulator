@@ -1051,18 +1051,16 @@ function renderAll() {
   renderStatsIfOpen();
 }
 
-// ---------------- Theme ----------------
+// ---------------- Intro bird spin (first visit only) ----------------
 
-function initTheme() {
-  const saved = localStorage.getItem('photo-sorter:theme');
-  if (saved === 'light' || saved === 'dark') document.documentElement.setAttribute('data-theme', saved);
-}
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const isDark = current === 'dark' || (!current && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  const next = isDark ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('photo-sorter:theme', next);
+function spinIntroLogoOnFirstVisit() {
+  try {
+    if (localStorage.getItem('photo-sorter:intro-spun')) return;
+    localStorage.setItem('photo-sorter:intro-spun', '1');
+  } catch {
+    return; // storage blocked: we can't tell if it's the first visit, so skip it
+  }
+  document.querySelector('#intro-message .intro-logo').classList.add('spin-once');
 }
 
 // ---------------- Wire up ----------------
@@ -1191,7 +1189,6 @@ function wireSearch() {
 }
 
 function init() {
-  initTheme();
   loadPrefs();
   fitTitles();
   // Re-fit once the title font has actually loaded (widths change with the font).
@@ -1202,11 +1199,12 @@ function init() {
     return;
   }
 
+  spinIntroLogoOnFirstVisit();
+
   document.getElementById('btn-open').addEventListener('click', openFolder);
   document.getElementById('btn-rescan').addEventListener('click', () => {
     if (state.dirHandle) loadFolder(state.dirHandle, { preserveView: true });
   });
-  document.getElementById('btn-theme').addEventListener('click', toggleTheme);
 
   wireSearch();
 
