@@ -1051,16 +1051,16 @@ function renderAll() {
   renderStatsIfOpen();
 }
 
-// ---------------- Intro bird spin (first visit only) ----------------
+// ---------------- Intro bird flip (first visit only) ----------------
 
-function spinIntroLogoOnFirstVisit() {
+function flipIntroLogoOnFirstVisit() {
   try {
     if (localStorage.getItem('photo-sorter:intro-spun')) return;
     localStorage.setItem('photo-sorter:intro-spun', '1');
   } catch {
     return; // storage blocked: we can't tell if it's the first visit, so skip it
   }
-  document.querySelector('#intro-message .intro-logo').classList.add('spin-once');
+  document.querySelector('#intro-message .intro-logo').classList.add('flip-intro');
 }
 
 // ---------------- Wire up ----------------
@@ -1199,7 +1199,7 @@ function init() {
     return;
   }
 
-  spinIntroLogoOnFirstVisit();
+  flipIntroLogoOnFirstVisit();
 
   document.getElementById('btn-open').addEventListener('click', openFolder);
   document.getElementById('btn-rescan').addEventListener('click', () => {

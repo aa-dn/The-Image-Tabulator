@@ -475,11 +475,15 @@ kbd.hotkey {
   padding: 0 20px;
 }
 .intro-logo { width: 180px; height: 180px; display: block; margin: 0 auto 4px; }
-/* One full turn of the bird, added by app.js on the very first visit only. */
-.intro-logo.spin-once { animation: intro-spin 1.2s ease-in-out .3s 1; }
-@keyframes intro-spin { to { transform: rotate(360deg); } }
+/* The bird flips to face the other way and back, three times, like it's
+   looking around. Added by app.js on the very first visit only. */
+.intro-logo.flip-intro { animation: intro-flip .8s ease-in-out .3s 3; }
+@keyframes intro-flip {
+  0%, 100% { transform: scaleX(1); }
+  50%      { transform: scaleX(-1); }
+}
 @media (prefers-reduced-motion: reduce) {
-  .intro-logo.spin-once { animation: none; }
+  .intro-logo.flip-intro { animation: none; }
 }
 .intro-title { display: inline-flex; margin: 8px 0 22px; }
 
